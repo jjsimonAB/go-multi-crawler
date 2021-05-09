@@ -1,85 +1,48 @@
 package main
 
 import (
-	"fmt"
+	"encoding/csv"
+	"log"
+	"os"
+
+	"github.com/gocolly/colly"
 )
 
-type Fetcher interface {
-	Fetch(url string) (body string, urls []string, err error)
-}
-
-func Crawl(url string, depth int, fetcher Fetcher) {
-	// TODO: Fetch URLS depth int, in paralel
-	// TODO: Don't fetch the same URL twice
-
-	if depth <= 0 {
-		return
-	}
-
-	body, urls, err := fetcher.Fetch(url)
-
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	fmt.Printf("found: %s %q\n", url, body)
-	for _, u := range urls {
-		Crawl(u, depth-1, fetcher)
-	}
-
-	return
-}
-
 func main() {
-	Crawl("https://golang.org/", 4, fetcher)
-}
-
-type fakeFetcher map[string]*fakeResult
-
-type fakeResult struct {
-	body string
-	urls []string
-}
-
-func (f fakeFetcher) Fetch(url string) (string, []string, error) {
-	if res, ok := f[url]; ok {
-		return res.body, res.urls, nil
+	fileName := "cryptocoinmarketcap.csv"
+	file, err := os.Create(fileName)
+	if err != nil {
+		log.Fatalf("Cannot create file %q: %s\n", fileName, err)
+		return
 	}
+	defer file.Close()
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
 
-	return "", nil, fmt.Errorf("not found: %s", url)
-}
+	headers := []string{"Name", "Symbol", "Market Cap (USD)", "Price (USD)", "Circulating Supply (USD)", "Volume (24h)", "Change (1h)", "Change (24h)", "Change (7d)"}
 
-// fetcher is a populated fakeFetcher.
-var fetcher = fakeFetcher{
-	"https://golang.org/": &fakeResult{
-		"The Go Programming Language",
-		[]string{
-			"https://golang.org/pkg/",
-			"https://golang.org/cmd/",
-		},
-	},
-	"https://golang.org/pkg/": &fakeResult{
-		"Packages",
-		[]string{
-			"https://golang.org/",
-			"https://golang.org/cmd/",
-			"https://golang.org/pkg/fmt/",
-			"https://golang.org/pkg/os/",
-		},
-	},
-	"https://golang.org/pkg/fmt/": &fakeResult{
-		"Package fmt",
-		[]string{
-			"https://golang.org/",
-			"https://golang.org/pkg/",
-		},
-	},
-	"https://golang.org/pkg/os/": &fakeResult{
-		"Package os",
-		[]string{
-			"https://golang.org/",
-			"https://golang.org/pkg/",
-		},
-	},
+	// setting header
+	writer.Write(headers)
+
+	cCrawler := colly.NewCollector()
+
+	cCrawler.OnHTML("tbody tr", func(e *colly.HTMLElement) {
+		data := []string{
+			e.ChildText(".cmc-table__column-name"),
+			e.ChildText(".cmc-table__cell--sort-by__symbol"),
+			e.ChildText(".cmc-table__cell--sort-by__market-cap"),
+			e.ChildText(".cmc-table__cell--sort-by__price"),
+			e.ChildText(".cmc-table__cell--sort-by__circulating-supply"),
+			e.ChildText(".cmc-table__cell--sort-by__volume-24-h"),
+			e.ChildText(".cmc-table__cell--sort-by__percent-change-1-h"),
+			e.ChildText(".cmc-table__cell--sort-by__percent-change-24-h"),
+			e.ChildText(".cmc-table__cell--sort-by__percent-change-7-d"),
+		}
+
+		writer.Write(data)
+	})
+
+	cCrawler.Visit("https://coinmarketcap.com/all/views/all/")
+
+	log.Printf("Scraping finished, check file %q for results\n", fileName)
 }
